@@ -100,8 +100,13 @@ class MqttControl
                         await Send("{\"function\":\"Init\"}"); await Task.Delay(300);
                         await Send($"{{\"function\":\"SetEffectALL\",\"effect\":\"{args[2]}\",\"mode\":\"Lighting\",\"speed\":\"2\"}}");
                         break;
+                    case "mono":
+                        // 单色: kb mono <1-30> (21=蓝, 1=红, 7=橙 - 实测)
+                        await Send("{\"function\":\"Init\"}"); await Task.Delay(300);
+                        await Send($"{{\"function\":\"SetEffectALL\",\"effect\":\"Single\",\"mode\":\"Lighting\",\"MonochromeIndex\":\"{args[2]}\",\"speed\":\"1\"}}");
+                        break;
                     case "status": await Send("{\"Action\":\"GETSTATUS\"}"); break;
-                    default: Console.WriteLine("kb: on|off|bright <0-5>|effect <name>|status"); break;
+                    default: Console.WriteLine("kb: on|off|bright <0-4>|effect <name>|mono <1-30>|status"); break;
                 }
                 break;
 
