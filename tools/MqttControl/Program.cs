@@ -61,6 +61,7 @@ class MqttControl
             case "curve":
                 var type = args[1].ToUpperInvariant();                                     // CPU | GPU
                 var vals = args[2].Split(',');
+                vals[0] = "0";  // 首点(最低温度)必须 0%, 否则 EC 拒绝整表 (实测规则)
                 var sb = new StringBuilder();
                 sb.Append($"{{\"Action\":\"SET_FAN_SPEED_CURVE_SETTING\",\"Name\":\"M4T1\",\"Type\":\"{type}\"");
                 for (int i = 0; i < 16 && i < vals.Length; i++)

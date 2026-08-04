@@ -19,20 +19,45 @@
 
 ```
 CCU.WinUI → MQTT(localhost:13688) → GCUBridge.exe (broker/路由)
-    → GCUService.exe (执行者, ConfuserEx 混淆) → DeviceIoControl → UWACPIDriver.sys → EC
+    → GCUService.exe (执行者, ConfuserEx 混淆) → DeviceIoControl → UWACPIDriver.sys
+    → ACPI 固件方法 ECRR/ECRW → EC
 ```
 
-## EC 通道 (IOCTL)
+## ACPI 固件协议 (核心机制) — ✅ 2026-08-05 反汇编破解
+
+**官方控制 = ACPI 固件方法**,不是 WMI(GCUService 零 WMI 引用,`ACPI\PNP0C14\1` WmiAcpi 设备存在但闲置)。
+
+驱动(UWACPIDriver.sys)收到用户 IOCTL 后,构建 **ACPI EVAL 缓冲区**并通过 IOCTL `0xC014000F` 调用固件方法:
+
+| 偏移 | 字段 | 值 |
+|------|------|-----|
+| +0x00 | Signature | `'AeiC'` (0x43696541) |
+| +0x04 | MethodName | `'ECRR'`(读)=0x52524345 / `'ECRW'`(写)=0x57524345 |
+| +0x08 | Size | 0x28 (40 字节) |
+| +0x0C | ArgumentCount | ECRR=1(地址) / ECRW=2(地址+值) |
+| +0x10 | Arguments | {type=0, length=4, data} |
+
+> ⚠️ 这就是之前 BSOD 0xA5 的"40 字节 AeiC 结构"——结构本身没错,错在**直接把结构当输入发给错误的 IOCTL**(驱动解析输入前 4 字节当 EC 地址 → 垃圾地址 → ACPI 卡死)。正确用法见 `docs/使用手册.md`。
+
+## EC 通道 (IOCTL 完整表, 24 个已枚举)
 
 | IOCTL | 名称 | 用途 | 证据 |
 |-------|------|------|------|
-| `0x9C40A488` | EC Read | 读 EC 寄存器(4 字节地址输入, 结果首字节) | ✅ 原生代码 + 实测 |
-| `0x9C40A48C` | EC Write | 写 EC 寄存器(8 字节 `{addr, value}`) | ✅ 原生代码 + 实测 |
-| `0x9C40A484` | CM Write | 未知 | ⚠️ 反编译见 |
-| `0x9C40A498` | MM Write B | 内存字节写 | ⚠️ 反编译见 |
-| `0x9C40A4C4` | IO Write | IO 端口写 | ⚠️ 反编译见 |
+| `0x9C40A488` | EC Read | 读 EC(4 字节地址输入, 结果首字节) | ✅ 原生代码 + 实测 |
+| `0x9C40A48C` | EC Write | 写 EC(8 字节 `{addr, value}`) | ✅ 原生代码 + 实测 |
+| `0x9C40A480/484/490/494/498/49C/4A0/4A4/4C0/4C4/4C8/4CC/4D0/4D4/4D8/4DC/4E0/4E4/500/504` | 内存/端口/CM 等 | 通用访问,非表专用 | ✅ 驱动 dispatch 枚举 |
 
-> ⚠️ 网上流传的 "0x9C40A4C4=EC读 / 0x9C40A4C8=EC写" 是**错的**——GCUService 真实 JIT 原生代码明确是 `0x9C40A488`(读)/ `0x9C40A48C`(写)。照错误表操作有 BSOD(0xA5)风险。
+> ⚠️ 网上流传的 "0x9C40A4C4=EC读 / 0x9C40A4C8=EC写" 是**错的**——真实是 `0x9C40A488`(读)/ `0x9C40A48C`(写)。
+
+### ⚠️ 固件写保护边界 (穷尽测试结论)
+
+| 区域 | 直接写 | 说明 |
+|------|--------|------|
+| 模式 0x751、辅助 0xD8/0xD9 | ✅ 可写 | 直接 EC 写有效 |
+| **风扇表 0xF2/0xF5/0xF00~0xF5F** | ❌ **固件硬保护** | 全部 24 IOCTL × 各种格式/解锁/标志地址均被拒 |
+| Boost 触发 0x768 | ❌ 写保护 | 仅 GCUService/MQTT 可置位 |
+
+**F 表区写保护在 ACPI 固件 ECRW 方法内部**——GCUService 是唯一能写表的(其 `MyEcCtrl.Write→0xD98CC0` 含未公开机制,函数未 JIT 无法分析)。**MQTT 是唯一完整控制通道**。
 
 ## EC 寄存器表
 
@@ -44,26 +69,32 @@ CCU.WinUI → MQTT(localhost:13688) → GCUBridge.exe (broker/路由)
 | `0x768` | Boost 触发 | 写 0x04 触发 Boost 生效 | ✅ 实测 |
 | `0x00D8`/`0x00D9` | Boost 辅助 | 写 0x04(与 0x768 组合) | ✅ 实测 |
 
-### 风扇表 (自定义曲线)
+### 风扇表 (自定义曲线) — ✅ 2026-08-05 实测双向验证
 
 | 地址 | 名称 | 说明 | 实测 |
 |------|------|------|------|
 | `0x7C5` | 表开关 | 0x80=启用自定义风扇表 | ✅ SetEcFanControlRespective 读写 |
 | `0x7C6` | 表触发 | 写 0x04 应用表 | ✅ 实测 |
-| `0xF00`~`0xF0F` | CPU 风扇表 | 16 点 (温度→占空比) | ✅ SetEcFanTable 循环写 |
-| `0xF20`/`0xF50` | GPU 风扇表 | 16 点 | ✅ 实测(MQTT) |
-| `0xF10`~`0xF1F` | CPU 第二组 | 未知 | ⚠️ |
+| `0xF10`~`0xF1F` | GPU 默认曲线参考 | 46,50,54,...82% | ✅ 实测 |
+| `0xF30`~`0xF3F` | CPU 默认曲线参考 | 46,50,...81% | ✅ 实测 |
+| `0xF40`~`0xF4F` | CPU 温度点 | 44,48,52,...80°C(UI 显示 46~80) | ✅ 实测 |
+| `0xF00`~`0xF0F` | GPU 温度点(推定) | 48~85°C | ⚠️ |
+| `0xF2`~`0xF2F` | **CPU 占空比(当前生效)** | 单位 0.5%(0xC8=100%);首点强制 0%,须单调递增 | ✅ **写此区→CPU 转速实时跟随** |
+| `0xF5`~`0xF5F` | **GPU 占空比(当前生效)** | 单位 0.5% | ✅ **写此区→GPU 转速跟随** |
+
+> ✅ **曲线控制已验证**: CPU 占空比 0xF2、GPU 占空比 0xF5,与控制台 UI 设置 100% 吻合(用户实测对照);
+> 全 100% → RPM 5272;调低 → 4922。首点(44°C)强制 0% 不可调。
 
 ### 遥测 (只读)
 
 | 地址 | 说明 |
 |------|------|
-| `0x464`/`0x465` | CPU 风扇 RPM (LE16) |
-| `0x46C`/`0x46D` | GPU 风扇 RPM |
-| `0x75B`/`0x75C` | 占空比显示 (0.5% 单位) |
-| `0x449`/`0x44C` | 温度 |
-| `0x783`/`0x784`/`0x785` | PL1 / PL2 / PL4 |
-| `0x786` | TCC |
+| `0x464`/`0x465` | CPU 风扇 RPM | 大端: 0x464<<8 \| 0x465 |
+| `0x46C`/`0x46D` | GPU 风扇 RPM | 大端 |
+| `0x75B`/`0x75C` | 占空比显示 | 0.5% 单位(0x91 ≈ 72.5%) |
+| `0x449`/`0x44C` | 温度 | °C(比控制台显示低约 10°C,偏移未明) |
+| `0x783`/`0x784`/`0x785` | PL1 / PL2 / PL4 | 功耗墙 |
+| `0x786` | TCC | 温度墙 |
 
 ## 控制方法全集 (JIT 原生代码确认)
 
@@ -124,11 +155,12 @@ jialong-control-protocol/
 ├── README.md                        # 本文档
 ├── promat.md                        # 项目说明
 ├── docs/
-│   ├── GCUService_逆向分析.md        # 完整逆向过程 (ConfuserEx → CLRMD → JIT 原生代码)
+│   ├── GCUService_逆向分析.md        # 完整逆向过程 (ConfuserEx → CLRMD → JIT 原生代码 → ACPI 协议)
 │   └── 使用手册.md                   # ⚠️ 安全操作流程 (先读这个再动手)
 └── tools/
-    ├── EcTool/                      # EC 寄存器读写/遥测 (IOCTL 0x9C40A488/A48C)
-    └── MqttControl/                 # 官方 MQTT 控制 (Boost/模式/曲线)
+    ├── EcTool/                      # EC 寄存器读写/遥测/写曲线 (IOCTL 0x9C40A488/A48C)
+    ├── MqttControl/                 # 官方 MQTT 控制 (Boost/模式/曲线, 自动首点0%)
+    └── MqttWatch/                   # MQTT 监听 (学习控制台操作序列)
 ```
 
 ## 快速开始
@@ -151,10 +183,12 @@ dotnet run --project tools/MqttControl -- curve CPU 30,30,35,40,45,50,55,60,65,7
 
 ## 参考资料
 
-- `~/Desktop/JLProbe/native_dump.txt` — 39 个 JIT 方法 x64 反汇编 (475KB)
+- `~/Desktop/JLProbe/native_dump.txt` — 39 个 JIT 方法 x64 反汇编 (1.3MB, 500条/方法)
 - `~/Desktop/JLProbe/il_dump.txt` — 183 个控制方法签名
-- `~/Desktop/JLProbe/decompiled_fan.txt` — IsLoadedImage 反编译 (stub 为主)
-- `%TEMP%\wrapper\jitprof.cpp` — CLR Profiler (JIT 捕获, 部分可用)
+- `~/Desktop/JLProbe/acpi_re.txt` — UWACPIDriver ECRR/ECRW 函数反汇编
+- `~/Desktop/JLProbe/driverentry.txt` / `ioctls.txt` — 驱动入口 + 完整 IOCTL 表
+- `%TEMP%\jlp_backup\UWACPIDriver.sys` — 驱动备份(46KB, 可反汇编)
+- `%TEMP%\acpi_re\` — 驱动反汇编工具 (Iced)
 - `%TEMP%\IlDump\` — CLRMD + Iced 反汇编工具
 
 ## License

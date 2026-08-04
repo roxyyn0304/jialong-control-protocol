@@ -136,9 +136,60 @@ GCUService 使用 ConfuserEx 风格 JIT 钩子保护:
 | MQTT 模式切换 | 0x751: 0x00 → 0x10 (TURBO), → 0x40 (BOOST) |
 | IOCTL 0x9C40A488 读 0x751 | 返回真实模式字节 |
 | IOCTL 0x9C40A48C 写 0x751=0x10 | 写回读一致 |
-| 风扇表 0xF00 平 100% | 表应用(0x7C5/0x7C6 变化)但**不驱动 RPM**(EC 忽略表,此机型风扇只跟模式/Boost) |
+| MQTT 写曲线(首点0, 其余100%) | ✅ **风扇拉满**: CPU 4739 RPM / GPU 4083 RPM (0x75B=88.5%) |
+| 控制台拖曲线 | 0xF2 区实时更新 + 输出跟随(58.5%→62% 按温度) |
 
-## 7. 已排除的路径
+> ✅ **2026-08-05 最终修正**: 早期"风扇表不驱动 RPM"结论是**错的**——原因是 MQTT 写全 100% 时**首点非 0**(违反固件校验),整表被 EC 拒绝。首点写 0% 后,曲线完全生效(CPU/GPU 均验证拉满)。
+
+## 7. ACPI 固件协议 (UWACPIDriver 反汇编破解)
+
+**结论:官方控制 = ACPI 固件方法 ECRR/ECRW,不是 WMI。**
+(`ACPI\PNP0C14\1` WmiAcpi 设备存在但 GCUService 零 WMI 引用——WMI 从未被用。)
+
+### 7.1 驱动内部机制 (UWACPIDriver.sys, 46KB, Iced 反汇编)
+
+```
+用户 IOCTL(0x9C40A488/A48C)
+  → 驱动构建 ACPI_EVAL_INPUT_BUFFER_COMPLEX (40 字节, 'AeiC' 签名)
+  → DeviceIoControl(ACPI 设备, IOCTL 0xC014000F)
+  → ACPI 固件方法 ECRR(读) / ECRW(写) → EC
+```
+
+**缓冲区结构**(反汇编 `mov [rsp+90h], 43696541h` 等指令确认):
+
+| 偏移 | 字段 | 值 |
+|------|------|-----|
+| +0x00 | Signature | `'AeiC'` (0x43696541) |
+| +0x04 | MethodName | `'ECRR'`=0x52524345(1参数) / `'ECRW'`=0x57524345(2参数) |
+| +0x08 | Size | 0x28 |
+| +0x0C | ArgumentCount | 1 或 2 |
+| +0x10+ | Arguments | {type=0, length=4, data} |
+
+方法名以 **DWORD 立即数**写入(`mov dword ptr [rsp+94h], 52524345h`),不是字符串引用。
+
+### 7.2 驱动 IOCTL 完整表 (24 个, dispatch 枚举)
+
+`0x9C40A480, 484, 488(EC读), 48C(EC写), 490, 494, 498, 49C, 4A0, 4A4, 4C0, 4C4, 4C8, 4CC, 4D0, 4D4, 4D8, 4DC, 4E0, 4E4, 500, 504`
+
+### 7.3 固件写保护边界 (穷尽测试)
+
+| 区域 | 直接写 | 测试 |
+|------|--------|------|
+| 0x751 模式 / 0xD8 / 0xD9 | ✅ | 写回读一致 |
+| **0xF2/0xF5/0xF00~0xF5F 表区** | ❌ | 24 IOCTL × {4/8/12B 格式} × 解锁(0xD8/D9)× 标志地址(0x8000|addr)× 0x7C5 预置 — 全部被拒 |
+| 0x768 Boost 触发 | ❌ | 读回 0x00 |
+
+**写保护在 ACPI 固件 ECRW 方法内部**——驱动只是转发。GCUService 写表成功,其 `MyEcCtrl.Write→0xD98CC0`(未 JIT)含未公开机制。
+**`\\.\ACPI` 无用户态符号链接**(CreateFile 返回 0x2),无法绕过驱动直调固件。
+
+### 7.4 WMI 排查记录
+
+- `ACPI\PNP0C14\1` = WmiAcpi 设备,Status OK,Service=WmiAcpi
+- `ACPI\UNIW0001` = I2C HID(触控板,排除)
+- root\wmi 无机械革命自定义类(AMLIEvalData1/AUTHFWCFG 为误导)
+- GCUService 内存映像零 `root\wmi`/`PNP0C14` 引用
+
+## 8. 已排除的路径
 
 | 路径 | 结论 |
 |------|------|
@@ -148,12 +199,16 @@ GCUService 使用 ConfuserEx 风格 JIT 钩子保护:
 | 内存映像反编译 | 全 stub |
 | dnSpy 附加 | 触发反调试,进程被踢 |
 | CLR Profiler (ICorProfilerCallback2) | ICorProfilerInfo 交互崩溃(本机环境) |
+| 直接写 F 表区(0xF2/0xF5) | 固件 ECRW 硬保护,穷尽 IOCTL/格式/解锁无解 |
+| WMI 控制 | 官方不用 WMI(PNP0C14 闲置) |
 
-## 8. 关键资产
+## 9. 关键资产
 
-- `JLProbe\native_dump.txt` (475KB) — 39 方法 x64 反汇编(本报告证据源)
+- `JLProbe\native_dump.txt` (1.3MB, 500条/方法) — JIT 原生代码反汇编(证据源)
 - `JLProbe\il_dump.txt` (31KB) — 183 方法签名
+- `JLProbe\acpi_re.txt` — ECRR/ECRW 函数反汇编
+- `JLProbe\driverentry.txt` / `ioctls.txt` — 驱动入口 + IOCTL 表
 - `JLProbe\GCUService_mem_raw.bin` (17MB) — 内存映像
 - `JLProbe\ProcMon\gcu.dmp` (648MB) — CLR dump(含 JIT 原生代码)
-- `%TEMP%\IlDump\` — 反汇编工具源码(CLRMD 2.2 + Iced 1.21)
-- `%TEMP%\wrapper\jitprof.cpp` — CLR Profiler 源码(部分可用)
+- `%TEMP%\IlDump\` — CLRMD + Iced 反汇编工具
+- `%TEMP%\acpi_re\` — 驱动反汇编工具
