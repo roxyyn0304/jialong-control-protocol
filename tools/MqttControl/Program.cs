@@ -78,8 +78,8 @@ class MqttControl
                 break;
 
             case "kb":
-                // 键盘背光: kb on | off | bright <0-5> | effect <名字> | status
-                // 注意: 必须先 Init 初始化, GCUService 才会真正写 EC 点亮 (实测)
+                // 键盘背光: kb on | off | bright <0-4> | effect <名字> | status
+                // 注意: 必须先 Init 初始化, GCUService 才会真正写 EC 点亮 (实测); 亮度范围 0-4
                 var ka = args[1].ToLowerInvariant();
                 switch (ka)
                 {
