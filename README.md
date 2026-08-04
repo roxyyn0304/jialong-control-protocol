@@ -57,7 +57,14 @@ CCU.WinUI → MQTT(localhost:13688) → GCUBridge.exe (broker/路由)
 | **风扇表 0xF2/0xF5/0xF00~0xF5F** | ❌ **固件硬保护** | 全部 24 IOCTL × 各种格式/解锁/标志地址均被拒 |
 | Boost 触发 0x768 | ❌ 写保护 | 仅 GCUService/MQTT 可置位 |
 
-**F 表区写保护在 ACPI 固件 ECRW 方法内部**——GCUService 是唯一能写表的(其 `MyEcCtrl.Write→0xD98CC0` 含未公开机制,函数未 JIT 无法分析)。**MQTT 是唯一完整控制通道**。
+**F 表区写保护在 ACPI 固件 ECRW 方法内部,信任模型为调用上下文级,无法从外部穿透。**
+
+深挖结论(2026-08-05, CLRMD 实时 attach + 模仿穷尽):
+- `MyEcCtrl.Write → 0xD98CC0 → jmp AcpiCtrl.Write`——**同一实现,同一 IOCTL 0x9C40A48C**,无隐藏机制
+- `SetEcFanTable` 真身(0x7F0F030)循环写 `0xF00+i`(温度点区);0xF2(占空比)无直接写入函数——**EC 内部镜像**
+- 模仿穷尽测试全部被拒:24 IOCTL × 3 格式 / 解锁 0xD8/D9 / 标志地址 / 0x7C5+0x7C6 完整序列 / 8 种句柄参数 / **SYSTEM 计划任务身份**
+
+**结论:风扇表只能经 GCUService(MQTT),中间层不可绕过**——这是固件设计,不是逆向缺口。
 
 ## EC 寄存器表
 

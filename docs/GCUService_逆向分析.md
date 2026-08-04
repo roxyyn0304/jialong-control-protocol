@@ -167,6 +167,26 @@ GCUService 使用 ConfuserEx 风格 JIT 钩子保护:
 
 方法名以 **DWORD 立即数**写入(`mov dword ptr [rsp+94h], 52524345h`),不是字符串引用。
 
+### 7.1b GCUService 写表调用链深挖 (CLRMD 实时 attach, 2026-08-05)
+
+```
+MyEcCtrl.Write (0x9FA0)
+  ├─ 检查对象字段 [rcx+8] 非空才写
+  └→ call 0xDA8CC0 → jmp AcpiCtrl.Write (0x9FE0) = 同一实现
+        └→ IOCTL 0x9C40A48C (标准 EC 写)
+
+SetFanTable → 0x7DB8/0x7DE0(表解析) → 0x7D60(跳板) → jmp 0x7F0F030
+  0x7F0F030 = SetEcFanTable 真身: 循环写 0xF00+i (i=0..15, 清剩余写 0xFF)
+        └→ MyEcCtrl.Write(0x9C40A48C)
+```
+
+**关键发现**:
+1. GCUService 写表 = 标准 ECRW IOCTL,与用户态调用**完全相同**,无隐藏 IOCTL/特殊格式
+2. 0xF2(占空比区)没有任何直接写入函数——**是 EC 固件内部镜像**(固件根据曲线设置生成)
+3. 固件信任模型为**调用上下文级**:同 IOCTL 同格式同序列(SYSTEM 身份)均被拒 → 只有 GCUService 进程内调用被放行
+
+**模仿穷尽测试记录**: 24 IOCTL×3格式 / 0xD8/0xD9 解锁 / 标志地址(0x8000|addr) / 0x7C5+0x7C6 完整序列 / 8 种句柄参数 / SYSTEM 计划任务 — **全部被拒**
+
 ### 7.2 驱动 IOCTL 完整表 (24 个, dispatch 枚举)
 
 `0x9C40A480, 484, 488(EC读), 48C(EC写), 490, 494, 498, 49C, 4A0, 4A4, 4C0, 4C4, 4C8, 4CC, 4D0, 4D4, 4D8, 4DC, 4E0, 4E4, 500, 504`
