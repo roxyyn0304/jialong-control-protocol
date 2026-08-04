@@ -77,6 +77,20 @@ class MqttControl
                 await Send("{\"Action\":\"GET_FAN_STATUS\"}");
                 break;
 
+            case "kb":
+                // 键盘背光: kb on | off | bright <0-5> | effect <名字> | status
+                var ka = args[1].ToLowerInvariant();
+                switch (ka)
+                {
+                    case "on": await Send("{\"function\":\"SetPower\",\"powerstatus\":1}"); break;
+                    case "off": await Send("{\"function\":\"SetPower\",\"powerstatus\":0}"); break;
+                    case "bright": await Send($"{{\"function\":\"SetLightingLevel\",\"light\":\"{args[2]}\",\"mode\":\"Lighting\"}}"); break;
+                    case "effect": await Send($"{{\"function\":\"SetEffectALL\",\"effect\":\"{args[2]}\",\"mode\":\"Lighting\",\"speed\":\"2\"}}"); break;
+                    case "status": await Send("{\"Action\":\"GETSTATUS\"}"); break;
+                    default: Console.WriteLine("kb: on|off|bright <0-5>|effect <name>|status"); break;
+                }
+                break;
+
             default:
                 Console.WriteLine("未知命令");
                 break;
