@@ -79,13 +79,27 @@ class MqttControl
 
             case "kb":
                 // 键盘背光: kb on | off | bright <0-5> | effect <名字> | status
+                // 注意: 必须先 Init 初始化, GCUService 才会真正写 EC 点亮 (实测)
                 var ka = args[1].ToLowerInvariant();
                 switch (ka)
                 {
-                    case "on": await Send("{\"function\":\"SetPower\",\"powerstatus\":1}"); break;
-                    case "off": await Send("{\"function\":\"SetPower\",\"powerstatus\":0}"); break;
-                    case "bright": await Send($"{{\"function\":\"SetLightingLevel\",\"light\":\"{args[2]}\",\"mode\":\"Lighting\"}}"); break;
-                    case "effect": await Send($"{{\"function\":\"SetEffectALL\",\"effect\":\"{args[2]}\",\"mode\":\"Lighting\",\"speed\":\"2\"}}"); break;
+                    case "on":
+                        await Send("{\"function\":\"Init\"}"); await Task.Delay(300);
+                        await Send("{\"function\":\"SetPower\",\"powerstatus\":1}"); await Task.Delay(200);
+                        await Send("{\"function\":\"SetLightingLevel\",\"light\":\"4\",\"mode\":\"Lighting\"}");
+                        break;
+                    case "off":
+                        await Send("{\"function\":\"SetPower\",\"powerstatus\":0}"); await Task.Delay(200);
+                        await Send("{\"function\":\"DeInit\"}");
+                        break;
+                    case "bright":
+                        await Send("{\"function\":\"Init\"}"); await Task.Delay(300);
+                        await Send($"{{\"function\":\"SetLightingLevel\",\"light\":\"{args[2]}\",\"mode\":\"Lighting\"}}");
+                        break;
+                    case "effect":
+                        await Send("{\"function\":\"Init\"}"); await Task.Delay(300);
+                        await Send($"{{\"function\":\"SetEffectALL\",\"effect\":\"{args[2]}\",\"mode\":\"Lighting\",\"speed\":\"2\"}}");
+                        break;
                     case "status": await Send("{\"Action\":\"GETSTATUS\"}"); break;
                     default: Console.WriteLine("kb: on|off|bright <0-5>|effect <name>|status"); break;
                 }
