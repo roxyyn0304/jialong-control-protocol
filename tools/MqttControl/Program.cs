@@ -110,6 +110,14 @@ class MqttControl
                 }
                 break;
 
+            case "sens":
+                // 转换灵敏度: sens <值> (当前400) | sens on | sens off
+                var sa = args[1].ToLowerInvariant();
+                if (sa == "on") await Send("{\"Action\":\"SET_OPERATING_MODE_DETAIL\",\"FanSwitchSpeedEnabled\":\"1\"}");
+                else if (sa == "off") await Send("{\"Action\":\"SET_OPERATING_MODE_DETAIL\",\"FanSwitchSpeedEnabled\":\"0\"}");
+                else await Send($"{{\"Action\":\"SET_OPERATING_MODE_DETAIL\",\"FanSwitchSpeed\":\"{args[1]}\"}}");
+                break;
+
             default:
                 Console.WriteLine("未知命令");
                 break;

@@ -90,8 +90,8 @@ CCU.WinUI → MQTT(localhost:13688) → GCUBridge.exe (broker/路由)
 | `0x7C6` | 表触发 | 写 0x04 应用表 | ✅ 实测 |
 | `0xF10`~`0xF1F` | GPU 默认曲线参考 | 46,50,54,...82% | ✅ 实测 |
 | `0xF30`~`0xF3F` | CPU 默认曲线参考 | 46,50,...81% | ✅ 实测 |
-| `0xF40`~`0xF4F` | CPU 温度点 | 44,48,52,...80°C(UI 显示 46~80) | ✅ 实测 |
-| `0xF00`~`0xF0F` | GPU 温度点(推定) | 48~85°C | ⚠️ |
+| `0xF40`~`0xF4F` | CPU 温度点 | **46,48,52,56,60,64,68,72,76,80°C**(用户提供,以此为准) | ✅ |
+| `0xF00`~`0xF0F` | GPU 温度点 | **44,46,50,54,58,62,66,70,74,78°C**(用户提供) | ✅ |
 | `0xF2`~`0xF2F` | **CPU 占空比(当前生效)** | 单位 0.5%(0xC8=100%);首点强制 0%,须单调递增 | ✅ **写此区→CPU 转速实时跟随** |
 | `0xF5`~`0xF5F` | **GPU 占空比(当前生效)** | 单位 0.5% | ✅ **写此区→GPU 转速跟随** |
 
@@ -193,16 +193,6 @@ dotnet run --project tools/MqttControl -- curve CPU 30,30,35,40,45,50,55,60,65,7
 ```
 
 ⚠️ 动手前必读 `docs/使用手册.md` — 含 BSOD 0xA5 事故教训和已验证的安全操作格式。
-
-## 参考资料
-
-- `~/Desktop/JLProbe/native_dump.txt` — 39 个 JIT 方法 x64 反汇编 (1.3MB, 500条/方法)
-- `~/Desktop/JLProbe/il_dump.txt` — 183 个控制方法签名
-- `~/Desktop/JLProbe/acpi_re.txt` — UWACPIDriver ECRR/ECRW 函数反汇编
-- `~/Desktop/JLProbe/driverentry.txt` / `ioctls.txt` — 驱动入口 + 完整 IOCTL 表
-- `%TEMP%\jlp_backup\UWACPIDriver.sys` — 驱动备份(46KB, 可反汇编)
-- `%TEMP%\acpi_re\` — 驱动反汇编工具 (Iced)
-- `%TEMP%\IlDump\` — CLRMD + Iced 反汇编工具
 
 ## License
 
