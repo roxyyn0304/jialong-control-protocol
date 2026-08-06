@@ -203,35 +203,19 @@
 jialong-control-protocol/
 ├── README.md                        # 本文档
 ├── promat.md                        # 项目说明(不入库)
-├── docs/
-│   ├── GCUService_逆向分析.md        # 完整逆向过程 (ConfuserEx → CLRMD → JIT → ACPI)
-│   ├── 使用手册.md                   # ⚠️ 安全操作流程 + 完整协议(先读这个)
-│   └── 最小中间层部署方案.md          # 脱离 UI 控制中心独立运行
-└── tools/
-    ├── EcTool/                      # EC 读写/遥测/写曲线
-    ├── MqttControl/                 # MQTT 控制 (boost/mode/curve/kb/sens)
-    └── MqttWatch/                   # MQTT 监听(学习控制台操作)
+└── docs/
+    ├── GCUService_逆向分析.md        # 完整逆向过程 (ConfuserEx → CLRMD → JIT → ACPI)
+    ├── 使用手册.md                   # ⚠️ 安全操作流程 + 完整协议(先读这个)
+    └── 最小中间层部署方案.md          # 脱离 UI 控制中心独立运行
 ```
+
+纯**协议文档库**:本仓库记录蛟龙16Pro 官方控制中心全部逆向成果(ACPI/EC 寄存器/曲线/功耗墙/背光/校准表/部署方案),不含可执行工具。控制实现见 G-Helper 蛟龙特化版。
 
 ## 🚀 快速开始
 
-```bash
-# 遥测: CPU/GPU RPM + 模式 + 占空比
-dotnet run --project tools/EcTool -- rpm
-
-# Boost 开(官方通道, 无风险)
-dotnet run --project tools/MqttControl -- boost on
-
-# 切狂暴模式
-dotnet run --project tools/MqttControl -- mode turbo
-
-# 自定义曲线(自动切 custom + 首点强制 0%)
-dotnet run --project tools/MqttControl -- curve CPU 0,37,37,37,37,37,37,37,54,100,100,100,100,100,100,100
-
-# 键盘背光
-dotnet run --project tools/MqttControl -- kb on
-dotnet run --project tools/MqttControl -- kb mono 21   # 单色蓝
-```
+1. 通读 `docs/使用手册.md`(含 BSOD 0xA5 事故教训和全部已验证协议格式)
+2. 需要控制时,用官方控制中心(或按 `docs/最小中间层部署方案.md` 独立部署 GCUService + GCUBridge,经 MQTT 发消息控制)
+3. MQTT 消息格式:控制用 `{"function":...}`(如背光),查询/设置用 `{"Action":...}`(如功耗墙)——全部格式见 `docs/使用手册.md`
 
 > ⚠️ 动手前必读 `docs/使用手册.md` — 含 BSOD 0xA5 事故教训和已验证的安全操作格式。
 

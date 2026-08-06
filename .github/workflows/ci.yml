@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate docs
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Check docs
+      shell: powershell
+      run: |
+        $docs = @('README.md','docs/使用手册.md','docs/最小中间层部署方案.md','docs/GCUService_逆向分析.md')
+        $missing = $docs | Where-Object { -not (Test-Path $_) }
+        if ($missing) { Write-Error "缺少文档:$($missing -join ',')"; exit 1 }
+        Write-Host '文档完整性 OK'
